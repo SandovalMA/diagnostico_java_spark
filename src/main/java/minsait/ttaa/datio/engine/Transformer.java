@@ -1,5 +1,6 @@
 package minsait.ttaa.datio.engine;
 
+import org.apache.hadoop.io.nativeio.NativeIO;
 import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
@@ -24,23 +25,37 @@ public class Transformer extends Writer {
 
         df = cleanData(df);
         df = exampleWindowFunction(df);
+        df = addColumnPC(df);
+        df = addColumnPvsO(df);
         df = columnSelection(df);
+        df = filterBy(df);
+        df = partitionBy(df);
+
 
         // for show 100 records after your transformations and show the Dataset schema
         df.show(100, false);
         df.printSchema();
 
         // Uncomment when you want write your final output
-        //write(df);
+        write(df);
+
+        //df.write().parquet("C:\\Users\\MiguelJimenez\\Desktop\\Parquet");
     }
 
     private Dataset<Row> columnSelection(Dataset<Row> df) {
         return df.select(
                 shortName.column(),
-                overall.column(),
+                long_name.column(),
+                age.column(),
                 heightCm.column(),
+                weight_kg.column(),
+                nationality.column(),
+                club_name.column(),
+                overall.column(),
+                potential.column(),
                 teamPosition.column(),
-                catHeightByPosition.column()
+                player_Cat.column(),
+                potVsOvr.column()
         );
     }
 
@@ -96,4 +111,41 @@ public class Transformer extends Writer {
         return df;
     }
 
+    private Dataset<Row> addColumnPC(Dataset<Row> df) {
+        WindowSpec w = Window
+                .partitionBy(nationality.column())
+                .orderBy(heightCm.column().desc());
+
+        Column rank = rank().over(w);
+        Column rule = when(rank.$less(10), "A")
+                .when(rank.$less(20), "B")
+                .when(rank.$less(50),"C")
+                .otherwise("D");
+
+        df = df.withColumn(player_Cat.getName(), rule);
+
+        return df;
+    }
+
+    private Dataset<Row> addColumnPvsO(Dataset<Row> df) {
+        Column rule = potential.column().divide(overall.column());
+
+        df = df.withColumn(potVsOvr.getName(), rule);
+
+        return df;
+    }
+
+    private Dataset<Row> filterBy(Dataset<Row> df) {
+        df= df.filter(player_Cat.column().contains("A").or(player_Cat.column().contains("B"))
+                .or(player_Cat.column().contains("B").and(potVsOvr.column().$greater(1.45)))
+                .or(player_Cat.column().contains("D").and(potVsOvr.column().$greater(1.25))));
+
+        return df;
+    }
+
+    private Dataset<Row> partitionBy(Dataset<Row> df) {
+        WindowSpec w = Window.partitionBy(nationality.column().desc());
+
+        return df;
+    }
 }
